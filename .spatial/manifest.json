@@ -1,6 +1,45 @@
 {
-  "generated": "2026-10-01T21:39:42.623676Z",
+  "generated": "2026-10-01T21:57:19.225401Z",
   "nodes": [
+    {
+      "Coordinate": "platform.fraud.screening.scorer:detection_flow.pre_auth.evaluate.EvaluateRisk",
+      "Ecosystem": "platform",
+      "Context": "fraud",
+      "Container": "screening",
+      "Component": "scorer",
+      "Workflow": "detection_flow",
+      "Action": "pre_auth",
+      "Task": "evaluate",
+      "Leaf": "EvaluateRisk",
+      "Capability": "DATA_ACCESS",
+      "TimeoutMs": 5000
+    },
+    {
+      "Coordinate": "platform.fraud.screening.scorer:detection_flow.pre_auth.score_api.FetchFraudScore",
+      "Ecosystem": "platform",
+      "Context": "fraud",
+      "Container": "screening",
+      "Component": "scorer",
+      "Workflow": "detection_flow",
+      "Action": "pre_auth",
+      "Task": "score_api",
+      "Leaf": "FetchFraudScore",
+      "Capability": "DATA_ACCESS",
+      "TimeoutMs": 3000
+    },
+    {
+      "Coordinate": "platform.notifications.email.sender:order_flow.notify.send_api.SendReceiptEmail",
+      "Ecosystem": "platform",
+      "Context": "notifications",
+      "Container": "email",
+      "Component": "sender",
+      "Workflow": "order_flow",
+      "Action": "notify",
+      "Task": "send_api",
+      "Leaf": "SendReceiptEmail",
+      "Capability": "STATE_MUTATE",
+      "TimeoutMs": 3000
+    },
     {
       "Coordinate": "platform.billing.checkout.payment:order_flow.process_payment.execute.ProcessPayment",
       "Ecosystem": "platform",
@@ -38,6 +77,32 @@
       "Task": "calculate_tax",
       "Leaf": "CalculateTax",
       "Capability": "DATA_ACCESS",
+      "TimeoutMs": 5000
+    },
+    {
+      "Coordinate": "platform.billing.checkout.payment:order_flow.void_charge.execute.VoidCharge",
+      "Ecosystem": "platform",
+      "Context": "billing",
+      "Container": "checkout",
+      "Component": "payment",
+      "Workflow": "order_flow",
+      "Action": "void_charge",
+      "Task": "execute",
+      "Leaf": "VoidCharge",
+      "Capability": "CRITICAL_DESTROY",
+      "TimeoutMs": 5000
+    },
+    {
+      "Coordinate": "platform.billing.checkout.payment:order_flow.void_charge.reverse_api.ReverseCharge",
+      "Ecosystem": "platform",
+      "Context": "billing",
+      "Container": "checkout",
+      "Component": "payment",
+      "Workflow": "order_flow",
+      "Action": "void_charge",
+      "Task": "reverse_api",
+      "Leaf": "ReverseCharge",
+      "Capability": "CRITICAL_DESTROY",
       "TimeoutMs": 5000
     }
   ]
