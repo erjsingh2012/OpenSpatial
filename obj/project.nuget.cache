@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "dgSpecHash": "TgMiQz2+3SI=",
+  "success": true,
+  "projectFilePath": "/Users/jatinderpal.singh/TechReports/OpenSpatial/OpenSpatial.csproj",
+  "expectedPackageFiles": [
+    "/Users/jatinderpal.singh/.nuget/packages/microsoft.netcore.app.ref/8.0.29/microsoft.netcore.app.ref.8.0.29.nupkg.sha512",
+    "/Users/jatinderpal.singh/.nuget/packages/microsoft.aspnetcore.app.ref/8.0.29/microsoft.aspnetcore.app.ref.8.0.29.nupkg.sha512",
+    "/Users/jatinderpal.singh/.nuget/packages/microsoft.netcore.app.host.osx-arm64/8.0.29/microsoft.netcore.app.host.osx-arm64.8.0.29.nupkg.sha512"
+  ],
+  "logs": []
+}
