@@ -9,7 +9,11 @@ public record PaymentResponse(bool Success, string ChargeId, decimal Tax, decima
 // T6 — Action: orchestrates T7 + T8, owns the outcome
 public class PaymentAction
 {
-    private readonly TaxTask   _tax    = new();
+    private static readonly SpatialAttribute Attr =
+        typeof(PaymentAction).GetMethod(nameof(ProcessPayment))!
+                             .GetCustomAttribute<SpatialAttribute>()!;
+
+    private readonly TaxTask    _tax    = new();
     private readonly StripeLeaf _stripe = new();
 
     [Spatial(
@@ -22,26 +26,15 @@ public class PaymentAction
         Task       = "execute",
         Capability = "STATE_MUTATE"
     )]
-    public async Task<PaymentResponse> ProcessPayment(PaymentRequest req)
-    {
-        PrintCoordinate();
+    public async Task<PaymentResponse> ProcessPayment(PaymentRequest req) =>
+        await SpatialTracer.RunAsync(Attr, nameof(ProcessPayment), async () =>
+        {
+            var tax    = _tax.CalculateTax(req.Amount, req.Region);
+            var total  = req.Amount + tax;
+            var charge = await _stripe.ChargeStripe(total, req.Token);
 
-        // T7: pure calculation — no I/O
-        var tax   = _tax.CalculateTax(req.Amount, req.Region);
-        var total = req.Amount + tax;
-
-        // T8: external I/O with hard cutoff
-        var charge = await _stripe.ChargeStripe(total, req.Token);
-
-        return charge.Success
-            ? new PaymentResponse(true,  charge.ChargeId, tax, total, "SETTLED")
-            : new PaymentResponse(false, "",              tax, total, charge.Outcome);
-    }
-
-    private void PrintCoordinate([System.Runtime.CompilerServices.CallerMemberName] string method = "")
-    {
-        var attr = GetType().GetMethod(method)?.GetCustomAttribute<SpatialAttribute>();
-        if (attr is not null)
-            Console.WriteLine($"  [T6 Action] {attr.Coordinate}.{method}");
-    }
+            return charge.Success
+                ? new PaymentResponse(true,  charge.ChargeId, tax, total, "SETTLED")
+                : new PaymentResponse(false, "",              tax, total, charge.Outcome);
+        });
 }

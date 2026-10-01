@@ -132,15 +132,26 @@ A T8 Leaf must always resolve to one of: `SETTLED`, `DECLINED`, or `TIMEOUT`. No
 
 ---
 
-### Month 3 — OpenTelemetry Binding
+### Month 3 — OpenTelemetry Binding ✅
 > The coordinate becomes the OTel span name. Zero config.
 
-- [ ] Add `OpenTelemetry` NuGet package
-- [ ] `SpatialTracer.RunAsync()` wraps every `[Spatial]` method automatically
-- [ ] Span name = full 8-tier coordinate string
-- [ ] Span attributes: `spatial.capability`, `spatial.context`, `spatial.container`
-- [ ] Span outcome tag: `OUTPUT` | `SINK:TIMEOUT` | `SINK:ERROR`
-- [ ] Export to console exporter first, then OTLP
+- [x] Add `OpenTelemetry` + `OpenTelemetry.Exporter.Console` NuGet packages
+- [x] `SpatialTracer.RunAsync()` wraps every `[Spatial]` method automatically
+- [x] Span name = full 8-tier coordinate string
+- [x] Span attributes: `spatial.capability`, `spatial.context`, `spatial.container`
+- [x] Span outcome tag: `OUTPUT` | `SINK:TIMEOUT` | `SINK:ERROR`
+- [x] Console exporter — swap for OTLP to send to Jaeger / Grafana Tempo
+
+**OTel span output (per method call):**
+```
+Activity.DisplayName: platform.billing.checkout.payment:order_flow.process_payment.charge_vendor.ChargeStripe
+Activity.Tags:
+    spatial.coordinate: platform.billing.checkout.payment:...ChargeStripe
+    spatial.capability: STATE_MUTATE
+    spatial.outcome:    OUTPUT
+    spatial.context:    billing
+    spatial.container:  checkout
+```
 
 ---
 

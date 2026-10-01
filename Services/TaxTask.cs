@@ -6,6 +6,10 @@ namespace OpenSpatial.Services;
 // T7 — Task: pure calculation, no I/O
 public class TaxTask
 {
+    private static readonly SpatialAttribute Attr =
+        typeof(TaxTask).GetMethod(nameof(CalculateTax))!
+                       .GetCustomAttribute<SpatialAttribute>()!;
+
     [Spatial(
         Ecosystem  = "platform",
         Context    = "billing",
@@ -16,24 +20,15 @@ public class TaxTask
         Task       = "calculate_tax",
         Capability = "DATA_ACCESS"
     )]
-    public decimal CalculateTax(decimal amount, string region)
-    {
-        PrintCoordinate();
-
-        var rate = region switch
+    public decimal CalculateTax(decimal amount, string region) =>
+        SpatialTracer.Run(Attr, nameof(CalculateTax), () =>
         {
-            "CA" => 0.0875m,
-            "NY" => 0.08m,
-            _    => 0.05m
-        };
-
-        return Math.Round(amount * rate, 2);
-    }
-
-    private void PrintCoordinate([System.Runtime.CompilerServices.CallerMemberName] string method = "")
-    {
-        var attr = GetType().GetMethod(method)?.GetCustomAttribute<SpatialAttribute>();
-        if (attr is not null)
-            Console.WriteLine($"  [T7 Task]  {attr.Coordinate}.{method}");
-    }
+            var rate = region switch
+            {
+                "CA" => 0.0875m,
+                "NY" => 0.08m,
+                _    => 0.05m
+            };
+            return Math.Round(amount * rate, 2);
+        });
 }
