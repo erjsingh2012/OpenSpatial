@@ -18,77 +18,110 @@ public record ManifestNode(
 
 public static class SpatialTree
 {
+    // level: 1=C1 only, 2=C1+C2, 3=C1+C2+C3, 4=full (default)
     public static void Print(string manifestPath = ".spatial/manifest.json",
                              string? filter      = null,
-                             string? capability  = null)
+                             string? capability  = null,
+                             int     level       = 4)
     {
         if (!File.Exists(manifestPath))
         {
-            Console.WriteLine($"No manifest found at {manifestPath}. Run the app first.");
+            Console.WriteLine($"No manifest found at {manifestPath}. Run dotnet run first.");
             return;
         }
 
-        var json    = File.ReadAllText(manifestPath);
-        var doc     = JsonDocument.Parse(json);
-        var nodes   = doc.RootElement
-                         .GetProperty("nodes")
-                         .Deserialize<List<ManifestNode>>()!;
+        var json  = File.ReadAllText(manifestPath);
+        var doc   = JsonDocument.Parse(json);
+        var nodes = doc.RootElement
+                       .GetProperty("nodes")
+                       .Deserialize<List<ManifestNode>>()!;
 
-        // Apply filters
         if (filter is not null)
             nodes = nodes.Where(n => n.Coordinate.StartsWith(filter)).ToList();
 
         if (capability is not null)
             nodes = nodes.Where(n => n.Capability == capability).ToList();
 
-        if (nodes.Count == 0)
-        {
-            Console.WriteLine("No nodes match the filter.");
-            return;
-        }
+        if (nodes.Count == 0) { Console.WriteLine("No nodes match the filter."); return; }
 
-        PrintHeader();
+        PrintHeader(level);
 
-        // Group into C4 levels
-        var byContext   = nodes.GroupBy(n => $"{n.Ecosystem}.{n.Context}").OrderBy(g => g.Key);
+        var byContext = nodes.GroupBy(n => $"{n.Ecosystem}.{n.Context}").OrderBy(g => g.Key);
 
         foreach (var ctxGroup in byContext)
         {
-            // C1 — System Context
+            // ── C1: System Context ────────────────────────────────────────
             Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine($"\n  [C1] {ctxGroup.Key}");
+            var ctxCount = $"  ({ctxGroup.Count()} node{(ctxGroup.Count() > 1 ? "s" : "")})";
+            Console.Write($"\n  [C1] {ctxGroup.Key}");
+            if (level == 1)
+            {
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.Write(ctxCount);
+            }
+            Console.WriteLine();
             Console.ResetColor();
 
-            var byContainer = ctxGroup.GroupBy(n => n.Container).OrderBy(g => g.Key);
+            if (level < 2) continue;
+
+            var byContainer = ctxGroup.GroupBy(n => n.Container).OrderBy(g => g.Key).ToList();
 
             foreach (var ctnGroup in byContainer)
             {
-                // C2 — Container
+                var isLastCtn  = ctnGroup == byContainer.Last();
+                var ctnBranch  = isLastCtn ? "└─" : "├─";
+
+                // ── C2: Container ─────────────────────────────────────────
                 Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($"    └─ [C2] {ctnGroup.Key}");
+                var ctnCount = $"  ({ctnGroup.Count()} node{(ctnGroup.Count() > 1 ? "s" : "")})";
+                Console.Write($"    {ctnBranch} [C2] {ctnGroup.Key}");
+                if (level == 2)
+                {
+                    Console.ForegroundColor = ConsoleColor.DarkGray;
+                    Console.Write(ctnCount);
+                }
+                Console.WriteLine();
                 Console.ResetColor();
 
-                var byComponent = ctnGroup.GroupBy(n => n.Component).OrderBy(g => g.Key);
+                if (level < 3) continue;
+
+                var byComponent = ctnGroup.GroupBy(n => n.Component).OrderBy(g => g.Key).ToList();
+                var indent      = isLastCtn ? "     " : "  │  ";
 
                 foreach (var cmpGroup in byComponent)
                 {
-                    // C3 — Component
+                    var isLastCmp = cmpGroup == byComponent.Last();
+                    var cmpBranch = isLastCmp ? "└─" : "├─";
+
+                    // ── C3: Component ─────────────────────────────────────
                     Console.ForegroundColor = ConsoleColor.Yellow;
-                    Console.WriteLine($"         └─ [C3] {cmpGroup.Key}");
+                    var cmpCount = $"  ({cmpGroup.Count()} node{(cmpGroup.Count() > 1 ? "s" : "")})";
+                    Console.Write($"  {indent}  {cmpBranch} [C3] {cmpGroup.Key}");
+                    if (level == 3)
+                    {
+                        Console.ForegroundColor = ConsoleColor.DarkGray;
+                        Console.Write(cmpCount);
+                    }
+                    Console.WriteLine();
                     Console.ResetColor();
 
-                    var codeNodes = cmpGroup.ToList();
+                    if (level < 4) continue;
+
+                    var codeNodes  = cmpGroup.ToList();
+                    var codeIndent = isLastCtn
+                        ? (isLastCmp ? "           " : "      │    ")
+                        : (isLastCmp ? "  │        " : "  │   │    ");
 
                     for (int i = 0; i < codeNodes.Count; i++)
                     {
-                        var node   = codeNodes[i];
-                        var isLast = i == codeNodes.Count - 1;
-                        var branch = isLast ? "└──" : "├──";
-                        var cap    = CapTag(node.Capability);
-                        var path   = $"{node.Workflow} › {node.Action} › {node.Task} › {node.Leaf}";
+                        var node      = codeNodes[i];
+                        var isLastCode = i == codeNodes.Count - 1;
+                        var codeBranch = isLastCode ? "└──" : "├──";
+                        var cap        = CapTag(node.Capability);
+                        var path       = $"{node.Workflow} › {node.Action} › {node.Task} › {node.Leaf}";
 
-                        // C4 — Code
-                        Console.Write($"              {branch} [C4] ");
+                        // ── C4: Code ──────────────────────────────────────
+                        Console.Write($"  {codeIndent}{codeBranch} [C4] ");
                         Console.ForegroundColor = CapColor(node.Capability);
                         Console.Write($"{cap} ");
                         Console.ResetColor();
@@ -99,35 +132,55 @@ public static class SpatialTree
         }
 
         Console.WriteLine();
-        PrintFooter(nodes);
+        PrintFooter(nodes, level);
     }
 
-    private static void PrintHeader()
+    private static void PrintHeader(int level)
     {
+        var title = level switch
+        {
+            1 => "C1 — SYSTEM CONTEXT DIAGRAM",
+            2 => "C2 — CONTAINER DIAGRAM",
+            3 => "C3 — COMPONENT DIAGRAM",
+            _ => "C4 — CODE DIAGRAM (Full)"
+        };
+
         Console.ForegroundColor = ConsoleColor.White;
-        Console.WriteLine("\n  ╔══════════════════════════════════════════════════════╗");
-        Console.WriteLine("  ║          OPENSPATIAL TREE — C4 Architecture          ║");
-        Console.WriteLine("  ╚══════════════════════════════════════════════════════╝");
+        Console.WriteLine($"\n  ╔══════════════════════════════════════════════════════╗");
+        Console.WriteLine($"  ║  {title,-52}║");
+        Console.WriteLine($"  ╚══════════════════════════════════════════════════════╝");
         Console.ResetColor();
-        Console.WriteLine("  C1 System Context  →  C2 Container  →  C3 Component  →  C4 Code\n");
+
+        var legend = level switch
+        {
+            1 => "  Scope: Ecosystem · Context\n",
+            2 => "  Scope: Ecosystem · Context  →  Container\n",
+            3 => "  Scope: Ecosystem · Context  →  Container  →  Component\n",
+            _ => "  Scope: C1 Context  →  C2 Container  →  C3 Component  →  C4 Code\n"
+        };
+        Console.WriteLine(legend);
     }
 
-    private static void PrintFooter(List<ManifestNode> nodes)
+    private static void PrintFooter(List<ManifestNode> nodes, int level)
     {
         Console.ForegroundColor = ConsoleColor.DarkGray;
-        Console.WriteLine($"  {nodes.Count} node(s)   " +
-            $"STATE_MUTATE: {nodes.Count(n => n.Capability == "STATE_MUTATE")}   " +
-            $"DATA_ACCESS: {nodes.Count(n => n.Capability == "DATA_ACCESS")}   " +
-            $"CRITICAL_DESTROY: {nodes.Count(n => n.Capability == "CRITICAL_DESTROY")}");
+        if (level == 4)
+            Console.WriteLine($"  {nodes.Count} node(s)   " +
+                $"STATE_MUTATE: {nodes.Count(n => n.Capability == "STATE_MUTATE")}   " +
+                $"DATA_ACCESS: {nodes.Count(n => n.Capability == "DATA_ACCESS")}   " +
+                $"CRITICAL_DESTROY: {nodes.Count(n => n.Capability == "CRITICAL_DESTROY")}");
+        else
+            Console.WriteLine($"  {nodes.Count} node(s) across " +
+                $"{nodes.Select(n => $"{n.Ecosystem}.{n.Context}").Distinct().Count()} context(s)");
         Console.ResetColor();
     }
 
     private static string CapTag(string cap) => cap switch
     {
-        "STATE_MUTATE"      => "[STATE_MUTATE    ]",
-        "DATA_ACCESS"       => "[DATA_ACCESS     ]",
-        "CRITICAL_DESTROY"  => "[CRITICAL_DESTROY]",
-        _                   => $"[{cap,-17}]"
+        "STATE_MUTATE"     => "[STATE_MUTATE    ]",
+        "DATA_ACCESS"      => "[DATA_ACCESS     ]",
+        "CRITICAL_DESTROY" => "[CRITICAL_DESTROY]",
+        _                  => $"[{cap,-17}]"
     };
 
     private static ConsoleColor CapColor(string cap) => cap switch
