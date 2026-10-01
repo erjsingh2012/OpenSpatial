@@ -40,50 +40,119 @@ if (args.Length > 0 && args[0] == "tree")
     return;
 }
 
-// ── Multi-domain payment demo ───────────────────────────────────────────────
+// ── E-Commerce Order Fulfillment Demo ──────────────────────────────────────
 using var tracerProvider = Sdk.CreateTracerProviderBuilder()
     .AddSource("openspatial")
     .AddConsoleExporter()
     .Build();
 
-Console.WriteLine("=== OpenSpatial — Multi-Domain Payment Flow ===\n");
+// ── Order parameters ────────────────────────────────────────────────────────
+const string orderId  = "ORD-2026-001";
+const string sku      = "SKU-A1234";
+const int    qty      = 2;
+const string region   = "CA";
+const string token    = "tok_test_visa";
+const string phone    = "+14155550199";
 
-var request = new PaymentRequest(
-    OrderId: "ORD-001",
-    Amount:  100.00m,
-    Region:  "CA",
-    Token:   "tok_test_visa"
-);
+Console.WriteLine("╔══════════════════════════════════════════════════════════════╗");
+Console.WriteLine("║        OpenSpatial — E-Commerce Order Fulfillment           ║");
+Console.WriteLine("╚══════════════════════════════════════════════════════════════╝\n");
 
-Console.WriteLine($"Input:  Order {request.OrderId} · ${request.Amount} · Region {request.Region}");
-Console.WriteLine("─────────────────────────────────────────");
+// ── Phase 1: Pre-flight ─────────────────────────────────────────────────────
+Console.WriteLine("── Phase 1: Pre-flight checks ─────────────────────────────────");
 
-// ── platform.fraud: pre-auth screening ────────────────────────────────────
-var fraud       = new FraudAction();
-var fraudResult = await fraud.EvaluateRisk(request.Token, request.Amount);
-Console.WriteLine($"Fraud:  Score {fraudResult.Score:F2} · {fraudResult.Reason}");
+var searcher = new SearchLeaf();
+var product  = await searcher.SearchIndex(sku);
+Console.WriteLine($"  Catalog:    {product.Name} · ${product.UnitPrice}/unit · {(product.Available ? "IN_STOCK" : "OUT_OF_STOCK")}");
 
-if (fraudResult.IsRisky)
+var stockLeaf      = new StockLeaf();
+var stockValidator = new StockValidationTask();
+var stock          = await stockLeaf.FetchStockLevel(sku);
+var isAvailable    = stockValidator.ValidateQuantity(stock.Available, qty);
+Console.WriteLine($"  Inventory:  {stock.Available} units available · requested {qty} → {(isAvailable ? "AVAILABLE" : "INSUFFICIENT")}");
+
+if (!isAvailable)
 {
-    Console.WriteLine("─────────────────────────────────────────");
-    Console.WriteLine("Status: DECLINED (fraud threshold exceeded)");
+    Console.WriteLine("\n  Status: REJECTED — insufficient stock");
+    return;
+}
+
+var blocklist    = new BlocklistLeaf();
+var blockResult  = await blocklist.CheckBlocklist(token);
+Console.WriteLine($"  Blocklist:  {token} → {blockResult.Reason}");
+
+var fraud       = new FraudAction();
+var fraudResult = await fraud.EvaluateRisk(token, product.UnitPrice * qty);
+Console.WriteLine($"  Fraud:      score {fraudResult.Score:F2} → {(fraudResult.IsRisky ? "DECLINED" : "APPROVED")}");
+
+if (fraudResult.IsRisky || blockResult.Blocked)
+{
+    Console.WriteLine("\n  Status: REJECTED — fraud risk");
     ManifestGenerator.Generate(Assembly.GetExecutingAssembly());
     return;
 }
 
-// ── platform.billing: tax + charge ────────────────────────────────────────
+// ── Phase 2: Payment ────────────────────────────────────────────────────────
+Console.WriteLine("\n── Phase 2: Payment ────────────────────────────────────────────");
+
 var payment = new PaymentAction();
-var result  = await payment.ProcessPayment(request);
+var charge  = await payment.ProcessPayment(
+    new PaymentRequest(orderId, product.UnitPrice * qty, region, token));
 
-// ── platform.notifications: receipt ───────────────────────────────────────
+Console.WriteLine($"  Tax:        ${charge.Tax} ({region} rate)");
+Console.WriteLine($"  Total:      ${charge.Total}");
+Console.WriteLine($"  Charge:     {charge.ChargeId} → {charge.Outcome}");
+
+if (!charge.Success)
+{
+    Console.WriteLine("\n  Status: FAILED — payment declined");
+    ManifestGenerator.Generate(Assembly.GetExecutingAssembly());
+    return;
+}
+
+// ── Phase 3: Fulfillment ────────────────────────────────────────────────────
+Console.WriteLine("\n── Phase 3: Fulfillment ────────────────────────────────────────");
+
+var orderValidator = new OrderValidatorTask();
+orderValidator.ValidateOrderItems(sku, qty, product.UnitPrice);
+
+var orderIdTask = new OrderIdTask();
+var fullOrderId = orderIdTask.AssignOrderId(orderId);
+
+var orderPersist = new OrderPersistLeaf();
+var order        = await orderPersist.PersistOrder(fullOrderId, charge.Total);
+Console.WriteLine($"  Order:      {order.OrderId} → {order.Status}");
+
+var stockReserve = new StockReserveLeaf();
+var reservation  = await stockReserve.DecrementStock(sku, qty);
+Console.WriteLine($"  Reserved:   {qty}x {sku} → {reservation.ReservationId}");
+
+var carrier  = new CarrierAction();
+var shipment = await carrier.AssignCarrier(orderId, region, charge.Total);
+Console.WriteLine($"  Carrier:    {shipment.Carrier} · ${shipment.Cost} · ETA {shipment.EstimatedDays} days");
+Console.WriteLine($"  Shipment:   {shipment.ShipmentId} → BOOKED");
+
+// ── Phase 4: Notifications ──────────────────────────────────────────────────
+Console.WriteLine("\n── Phase 4: Notifications ──────────────────────────────────────");
+
+var emailTemplate = new EmailTemplateTask();
+var rendered      = emailTemplate.RenderEmailTemplate("order_confirmation", fullOrderId);
+Console.WriteLine($"  Template:   {rendered}");
+
 var notif = new NotificationLeaf();
-var email = await notif.SendReceiptEmail(request.OrderId, result.Total);
+var email = await notif.SendReceiptEmail(fullOrderId, charge.Total);
+Console.WriteLine($"  Email:      {email.MessageId} → SENT");
 
-Console.WriteLine("─────────────────────────────────────────");
-Console.WriteLine($"Tax:    ${result.Tax}");
-Console.WriteLine($"Total:  ${result.Total}");
-Console.WriteLine($"Charge: {result.ChargeId}");
-Console.WriteLine($"Email:  {email.MessageId}");
-Console.WriteLine($"Status: {result.Outcome}");
+var sms    = new SmsLeaf();
+var smsOut = await sms.SendOrderSMS(fullOrderId, phone);
+Console.WriteLine($"  SMS:        {smsOut.SmsId} → SENT");
+
+// ── Summary ─────────────────────────────────────────────────────────────────
+Console.WriteLine("\n╔══════════════════════════════════════════════════════════════╗");
+Console.WriteLine($"║  Status: FULFILLED ✓                                        ║");
+Console.WriteLine($"║  Order:  {fullOrderId,-50}║");
+Console.WriteLine($"║  Total:  ${charge.Total,-49}║");
+Console.WriteLine($"║  Ship:   {shipment.ShipmentId,-50}║");
+Console.WriteLine("╚══════════════════════════════════════════════════════════════╝");
 
 ManifestGenerator.Generate(Assembly.GetExecutingAssembly());

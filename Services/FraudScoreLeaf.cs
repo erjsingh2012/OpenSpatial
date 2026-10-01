@@ -29,7 +29,8 @@ public class FraudScoreLeaf
             using var cts = new CancellationTokenSource(Attr.TimeoutMs);
             await Task.Delay(50, cts.Token);
 
-            var score   = amount > 500m ? 0.72 : 0.12;
+            // Realistic threshold: flag orders over $10,000 or known bad tokens
+            var score   = (amount > 10_000m || token.StartsWith("tok_fraud")) ? 0.82 : 0.12;
             var isRisky = score > 0.65;
             return new FraudScore(isRisky, score, isRisky ? "AMOUNT_THRESHOLD" : "CLEAR");
         });
