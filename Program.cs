@@ -4,7 +4,25 @@ using OpenTelemetry;
 using OpenTelemetry.Trace;
 using System.Reflection;
 
-// Month 3: configure OTel — coordinate becomes the span name
+// ── sptree CLI ─────────────────────────────────────────────────────────────
+// Usage:
+//   dotnet run -- tree                          → full C4 map
+//   dotnet run -- tree platform.billing         → filter by coordinate prefix
+//   dotnet run -- tree --cap STATE_MUTATE       → filter by capability
+// ──────────────────────────────────────────────────────────────────────────
+if (args.Length > 0 && args[0] == "tree")
+{
+    string? filter = args.Length > 1 && !args[1].StartsWith("--") ? args[1] : null;
+    string? cap    = null;
+
+    for (int i = 0; i < args.Length - 1; i++)
+        if (args[i] == "--cap") cap = args[i + 1];
+
+    SpatialTree.Print(filter: filter, capability: cap);
+    return;
+}
+
+// ── Payment demo ───────────────────────────────────────────────────────────
 using var tracerProvider = Sdk.CreateTracerProviderBuilder()
     .AddSource("openspatial")
     .AddConsoleExporter()
@@ -32,5 +50,4 @@ Console.WriteLine($"Total:  ${result.Total}");
 Console.WriteLine($"Charge: {result.ChargeId}");
 Console.WriteLine($"Status: {result.Outcome}");
 
-// Month 2: manifest generator
 ManifestGenerator.Generate(Assembly.GetExecutingAssembly());

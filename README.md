@@ -166,14 +166,38 @@ Activity.Tags:
 
 ---
 
-### Month 5 — `sptree` CLI
+### Month 5 — `sptree` CLI ✅
 > Print C4 topology in the terminal. No diagram tool required.
 
-- [ ] CLI that reads `.spatial/manifest.json`
-- [ ] `sptree` → prints full system tree
-- [ ] `sptree platform.billing` → prints subtree from that coordinate
-- [ ] `sptree --capability STATE_MUTATE` → lists all state-mutating nodes
+- [x] CLI reads `.spatial/manifest.json`
+- [x] Full C4 map: C1 Context → C2 Container → C3 Component → C4 Code
+- [x] Filter by coordinate prefix
+- [x] Filter by capability tag
 - [ ] GitHub Action: auto-generate Mermaid C4 diagram on every PR
+
+**Commands:**
+```bash
+dotnet run -- tree                        # full C4 map
+dotnet run -- tree platform.billing       # filter by coordinate prefix
+dotnet run -- tree --cap STATE_MUTATE     # show only state-mutating nodes
+```
+
+**Output:**
+```
+╔══════════════════════════════════════════════════════╗
+║          OPENSPATIAL TREE — C4 Architecture          ║
+╚══════════════════════════════════════════════════════╝
+C1 System Context  →  C2 Container  →  C3 Component  →  C4 Code
+
+  [C1] platform.billing
+    └─ [C2] checkout
+         └─ [C3] payment
+              ├── [C4] [STATE_MUTATE] order_flow › process_payment › execute › ProcessPayment
+              ├── [C4] [STATE_MUTATE] order_flow › process_payment › charge_vendor › ChargeStripe
+              └── [C4] [DATA_ACCESS ] order_flow › process_payment › calculate_tax › CalculateTax
+
+3 node(s)   STATE_MUTATE: 2   DATA_ACCESS: 1   CRITICAL_DESTROY: 0
+```
 
 ---
 
