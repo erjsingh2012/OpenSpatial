@@ -1,4 +1,6 @@
 using OpenSpatial.Services;
+using OpenSpatial.Spatial;
+using System.Reflection;
 
 Console.WriteLine("=== OpenSpatial — 3-Tier Payment Flow ===\n");
 
@@ -21,3 +23,6 @@ Console.WriteLine($"Tax:    ${result.Tax}");
 Console.WriteLine($"Total:  ${result.Total}");
 Console.WriteLine($"Charge: {result.ChargeId}");
 Console.WriteLine($"Status: {result.Outcome}");
+
+// Month 2: generate .spatial/manifest.json from all [Spatial] methods
+ManifestGenerator.Generate(Assembly.GetExecutingAssembly());

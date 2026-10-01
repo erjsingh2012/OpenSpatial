@@ -1,0 +1,44 @@
+{
+  "generated": "2026-10-01T21:31:20.250761Z",
+  "nodes": [
+    {
+      "Coordinate": "platform.billing.checkout.payment:order_flow.process_payment.execute.ProcessPayment",
+      "Ecosystem": "platform",
+      "Context": "billing",
+      "Container": "checkout",
+      "Component": "payment",
+      "Workflow": "order_flow",
+      "Action": "process_payment",
+      "Task": "execute",
+      "Leaf": "ProcessPayment",
+      "Capability": "STATE_MUTATE",
+      "TimeoutMs": 5000
+    },
+    {
+      "Coordinate": "platform.billing.checkout.payment:order_flow.process_payment.charge_vendor.ChargeStripe",
+      "Ecosystem": "platform",
+      "Context": "billing",
+      "Container": "checkout",
+      "Component": "payment",
+      "Workflow": "order_flow",
+      "Action": "process_payment",
+      "Task": "charge_vendor",
+      "Leaf": "ChargeStripe",
+      "Capability": "STATE_MUTATE",
+      "TimeoutMs": 5000
+    },
+    {
+      "Coordinate": "platform.billing.checkout.payment:order_flow.process_payment.calculate_tax.CalculateTax",
+      "Ecosystem": "platform",
+      "Context": "billing",
+      "Container": "checkout",
+      "Component": "payment",
+      "Workflow": "order_flow",
+      "Action": "process_payment",
+      "Task": "calculate_tax",
+      "Leaf": "CalculateTax",
+      "Capability": "DATA_ACCESS",
+      "TimeoutMs": 5000
+    }
+  ]
+}

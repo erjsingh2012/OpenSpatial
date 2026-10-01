@@ -11,6 +11,7 @@ public class SpatialAttribute : Attribute
     public string Action     { get; set; } = "";
     public string Task       { get; set; } = "";
     public string Capability { get; set; } = "";
+    public int    TimeoutMs  { get; set; } = 5000;
 
     // The full 8-tier coordinate — function name is T8 (Leaf)
     public string Coordinate =>

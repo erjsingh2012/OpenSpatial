@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("OpenSpatial")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+ad10fd5b4abd17d8dc04c9b106a59c596ce8ee49")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+abd6618541b1868a1a5bbbd43a058222c400b028")]
 [assembly: System.Reflection.AssemblyProductAttribute("OpenSpatial")]
 [assembly: System.Reflection.AssemblyTitleAttribute("OpenSpatial")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
