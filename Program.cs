@@ -40,6 +40,24 @@ if (args.Length > 0 && args[0] == "tree")
     return;
 }
 
+// ── Monitoring path config — runtime overridable ───────────────────────────
+Console.WriteLine("── Monitoring path config ──────────────────────────────────────────");
+Console.WriteLine("  [decorator defaults]");
+var stripeCoord = "platform.billing.checkout.payment:order_flow.process_payment.charge_vendor";
+var fraudCoord  = "platform.fraud.screening.scorer:detection_flow.pre_auth.score_api";
+var emailCoord  = "platform.notifications.email.sender:order_flow.notify.send_api";
+MonitoringRuntime.Inspect(stripeCoord, 0xFF73);
+MonitoringRuntime.Inspect(fraudCoord,  0xFF4F);
+MonitoringRuntime.Inspect(emailCoord,  0xD96F);
+
+// Simulate incident: Stripe TIMEOUT spike → crank sink sampling to 100%
+Console.WriteLine();
+Console.WriteLine("  [incident] Stripe TIMEOUT spike → SetPath(stripeCoord, 0xFF7B)");
+MonitoringRuntime.SetPath(stripeCoord, 0xFF7B);   // all paths · out@10% · sink@100% · E/U@100%
+MonitoringRuntime.Inspect(stripeCoord, 0xFF73);
+MonitoringRuntime.ClearPath(stripeCoord);          // restore for demo
+Console.WriteLine();
+
 // ── E-Commerce Order Fulfillment Demo ──────────────────────────────────────
 using var tracerProvider = Sdk.CreateTracerProviderBuilder()
     .AddSource("openspatial")

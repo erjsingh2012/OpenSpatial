@@ -8,9 +8,12 @@ public record FraudScore(bool IsRisky, double Score, string Reason);
 // T8 — Leaf: calls external ML scorer, hard timeout
 public class FraudScoreLeaf
 {
-    private static readonly SpatialAttribute Attr =
+    private static readonly SpatialAttribute    Attr    =
         typeof(FraudScoreLeaf).GetMethod(nameof(FetchFraudScore))!
                               .GetCustomAttribute<SpatialAttribute>()!;
+    private static readonly MonitoringAttribute Monitor =
+        typeof(FraudScoreLeaf).GetMethod(nameof(FetchFraudScore))!
+                              .GetCustomAttribute<MonitoringAttribute>()!;
 
     [Spatial(
         Ecosystem  = "platform",
@@ -22,6 +25,14 @@ public class FraudScoreLeaf
         Task       = "score_api",
         Capability = "DATA_ACCESS",
         TimeoutMs  = 3000
+    )]
+    // 0xFF4F: all paths on · output@5% (high-volume) · sink@10% · E/U@100%
+    // Env var override: SPATIAL_PATH_PLATFORM_FRAUD_SCREENING_SCORER_DETECTION_FLOW_PRE_AUTH_SCORE_API=0xFFD7
+    [Monitoring(
+        Path      = 0xFF4F,
+        EventIn   = "fraud.check.requested",
+        EventOut  = "fraud.check.completed | P1:CLEAR, P2:HIGH_RISK",
+        EventSink = "fraud.check.failed    | S1:TIMEOUT, S2:PROVIDER_ERROR"
     )]
     public async Task<FraudScore> FetchFraudScore(string token, decimal amount) =>
         await SpatialTracer.RunAsync(Attr, nameof(FetchFraudScore), async () =>

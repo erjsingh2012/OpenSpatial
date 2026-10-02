@@ -6,10 +6,12 @@ Two decorators. Every public boundary method carries both.
 [Spatial(Ecosystem="platform", Context="billing", Container="checkout",
          Component="payment", Workflow="order_flow", Action="process_payment",
          Task="charge_vendor", Capability="STATE_MUTATE", TimeoutMs=5000)]
-[Monitoring(EventIn="payment.requested",
-            EventOut="payment.settled  | P1:SETTLED_FULL, P2:SETTLED_PARTIAL, P3:SETTLED_DEFERRED",
-            EventSink="payment.failed  | S1:DECLINED, S2:TIMEOUT, S3:INSUFFICIENT_FUNDS",
-            LatencyP99Ms=500, AlertOnUk=true)]
+[Monitoring(
+    Path      = 0xFF73,   // all paths · output@10% · sink@25% · E/U@100%
+    EventIn   = "payment.requested",
+    EventOut  = "payment.settled  | P1:SETTLED_FULL, P2:SETTLED_PARTIAL, P3:SETTLED_DEFERRED",
+    EventSink = "payment.failed   | S1:DECLINED, S2:TIMEOUT, S3:INSUFFICIENT_FUNDS"
+)]
 public async Task<ChargeResult> ChargeStripe(decimal total, string token) { }
 ```
 
@@ -95,7 +97,7 @@ Moving a file does not change the coordinate. The architecture lives in the deco
 
 ---
 
-## The `[Monitoring]` Schema — Event Accounting
+## The `[Monitoring]` Schema — Event Accounting + Runtime Config
 
 ### Counters
 
@@ -107,6 +109,39 @@ Moving a file does not change the coordinate. The architecture lives in the deco
 | `U_k` | derived | `I_k − (O_k + S_k)` |
 
 `U_k > 0` = events entered and never exited through any known path. **This is the investigation signal.**
+
+### `Path` — 16-bit monitoring config (AI default, runtime overridable)
+
+```
+High byte — enable mask      Low byte — sample rates
+[P1|P2|P3|S1|S2|S3|E_|Uk]   [Out:3bits | Sink:3bits | E-flag | U-flag]
+```
+
+**Sample rate codes (3 bits):** `000`=0% · `001`=2% · `010`=5% · `011`=10% · `100`=25% · `101`=50% · `110`=100%
+
+| Hex | Enabled | Output | Sink | Use |
+|---|---|---|---|---|
+| `0xFF73` | all 8 | 10% | 25% | payment — default production |
+| `0xFF4F` | all 8 | 5%  | 10% | fraud — high-volume, reduce noise |
+| `0xFF7B` | all 8 | 10% | 100% | incident — see every sink event |
+| `0xFF D7` | all 8 | 100% | 50% | full incident mode |
+| `0x0000` | all off | — | — | monitoring disabled |
+
+**Runtime override** — three layers, resolved in order:
+
+```csharp
+// 1. In-process (feature flag, admin endpoint, incident responder)
+MonitoringRuntime.SetPath(coordinate, 0xFF7B);   // crank sink to 100% during incident
+MonitoringRuntime.ClearPath(coordinate);          // restore to decorator default
+
+// 2. Environment variable (deployment config, per-pod override)
+// SPATIAL_PATH_PLATFORM_BILLING_CHECKOUT_PAYMENT_ORDER_FLOW_PROCESS_PAYMENT_CHARGE_VENDOR=0xFF7B
+
+// 3. Decorator default — AI-generated at code review time, never hand-written
+[Monitoring(Path=0xFF73, ...)]
+```
+
+`MonitoringRuntime.Inspect(coordinate, defaultPath)` prints source + full decoded breakdown.
 
 ### Named Paths
 
