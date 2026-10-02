@@ -1,12 +1,84 @@
 # OpenSpatial
 
-A C# implementation of the `[Spatial]` decorator — the core mechanism of the **Agentic-First Software Design** framework.
+Two decorators. Every public boundary method carries both.
 
-The `[Spatial]` attribute gives every method an 8-tier architectural coordinate that humans, AI agents, compilers, and runtime engines all read identically. This eliminates **Architectural Asymmetry**: the problem where four actors hold four different, out-of-sync mental models of the same system.
+```csharp
+[Spatial(Ecosystem="platform", Context="billing", Container="checkout",
+         Component="payment", Workflow="order_flow", Action="process_payment",
+         Task="charge_vendor", Capability="STATE_MUTATE", TimeoutMs=5000)]
+[Monitoring(EventIn="payment.requested",
+            EventOut="payment.settled  | P1:SETTLED_FULL, P2:SETTLED_PARTIAL, P3:SETTLED_DEFERRED",
+            EventSink="payment.failed  | S1:DECLINED, S2:TIMEOUT, S3:INSUFFICIENT_FUNDS",
+            LatencyP99Ms=500, AlertOnUk=true)]
+public async Task<ChargeResult> ChargeStripe(decimal total, string token) { }
+```
+
+Both are **AI-generated once** during code review. Developers approve, never write them by hand.
 
 ---
 
-## The Coordinate
+## The Problem — Architectural Asymmetry
+
+Four actors hold four different, out-of-sync mental models of the same system:
+
+| Actor | How they see the code |
+|---|---|
+| Human developer | file tree + tribal knowledge |
+| AI agent | token context window |
+| Compiler | type graph |
+| Runtime / OTel | span names + metric labels |
+
+**OpenSpatial gives all four the same map** — an 8-tier coordinate embedded directly in the code.
+
+---
+
+## Two Decorators — Two Jobs
+
+### `[Spatial]` — Design-time · For Humans + AI Agents
+
+Answers *where is this code and what is it?*
+
+- Humans: C4 diagrams, code review, architecture decisions
+- AI agents: deterministic code navigation, correct code generation
+- Output: `manifest.json`, `sptree` CLI, Mermaid export, Spatial-MCP server
+
+### `[Monitoring]` — Runtime · For Production + Dashboards
+
+Answers *is this code healthy right now?*
+
+- On-call engineers: U_k alert → exact coordinate → exact flow view
+- SRE: auto-generated Grafana dashboard per coordinate
+- Output: OTel counters (I_k, O_k, S_k), U_k gauge, named path breakdown
+
+**The shared key:** the `[Spatial]` coordinate labels every `[Monitoring]` metric — a Grafana spike links back to the exact C4 node.
+
+---
+
+## What Gets Tracked
+
+Only **public boundary methods**. Private helpers and utilities are invisible to the system.
+
+```csharp
+// ✅ TRACKED — public, crosses a system boundary
+[Spatial(...)][Monitoring(...)]
+public async Task<ChargeResult> ChargeStripe(decimal total, string token) { }
+
+// ✅ TRACKED — public T7, meaningful testable unit of work
+[Spatial(...)]
+public decimal CalculateTax(decimal amount, string region) { }
+
+// ❌ NOT TRACKED — private, trivial, no boundary
+private decimal _applyRate(decimal amount, decimal rate) => amount * rate;
+
+// ❌ NOT TRACKED — internal utility
+private string _buildChargeId() => $"ch_{Guid.NewGuid().ToString()[..8]}";
+```
+
+**Rule:** public + crosses a domain / service / I/O boundary = track. Everything else = skip.
+
+---
+
+## The `[Spatial]` Coordinate — 8 Tiers
 
 ```
 platform.billing.checkout.payment : order_flow.process_payment.charge_vendor.ChargeStripe
@@ -15,18 +87,67 @@ T1       T2      T3        T4        T5          T6              T7            T
 Ecosystem Context Container Component Workflow   Action          Task          Leaf
 ```
 
-- **T1–T4** (Macro): where the code lives in the system
-- **T5–T8** (Micro): what the code does and what tier it operates at
-- **T8 Leaf** = the function name itself — the coordinate is decoupled from the filesystem
+- **T1–T4 Macro** — where the code lives in the system (filesystem-independent)
+- **T5–T8 Micro** — what the code does and at what tier
+- **T8 Leaf** — the function name itself
+
+Moving a file does not change the coordinate. The architecture lives in the decorator, not the filesystem.
 
 ---
 
-## Real-World Demo: E-Commerce Order Fulfillment
+## The `[Monitoring]` Schema — Event Accounting
 
-Seven microservices. Four execution phases. One `[Spatial]` attribute per method.
+### Counters
+
+| Counter | Increments | Meaning |
+|---|---|---|
+| `I_k` | on every call | event entered this coordinate |
+| `O_k` | on OUTPUT | event exited successfully |
+| `S_k` | on SINK:* | event terminated intentionally |
+| `U_k` | derived | `I_k − (O_k + S_k)` |
+
+`U_k > 0` = events entered and never exited through any known path. **This is the investigation signal.**
+
+### Named Paths
+
+`O_k` and `S_k` break into named sub-paths — each gets its own OTel counter:
 
 ```
-── Phase 1: Pre-flight checks ─────────────────────────────────
+EventOut  = "payment.settled | P1:SETTLED_FULL, P2:SETTLED_PARTIAL, P3:SETTLED_DEFERRED"
+EventSink = "payment.failed  | S1:DECLINED, S2:TIMEOUT, S3:INSUFFICIENT_FUNDS"
+```
+
+`U_k > 0` shows *something is wrong*. Named paths show *which exit is failing* — S2 (TIMEOUT) rising while S3 (INSUFFICIENT_FUNDS) = 0 points to Stripe latency, not a code bug.
+
+### Flow Logic View
+
+Each method's manifest node includes a structured flow — steps and all possible exits:
+
+```json
+"Flow": {
+  "steps": [
+    { "seq": 1, "op": "guard",   "desc": "CancellationTokenSource(5000ms)" },
+    { "seq": 2, "op": "io",      "desc": "Stripe API call — external network" },
+    { "seq": 3, "op": "compute", "desc": "generate charge ID" }
+  ],
+  "exits": [
+    { "outcome": "OUTPUT",       "condition": "charge.Success == true",  "counter": "O_k → P1" },
+    { "outcome": "SINK:TIMEOUT", "condition": "cts.Token cancelled",     "counter": "S_k → S2" },
+    { "outcome": "SINK:ERROR",   "condition": "unhandled exception",     "counter": "S_k → S3" }
+  ]
+}
+```
+
+When `U_k > 0` fires, the flow view shows which exit has no counter mapped — that is where the leak is.
+
+---
+
+## Real-World Demo — E-Commerce Order Fulfillment
+
+Seven microservices. Four execution phases. 22 `[Spatial]` nodes.
+
+```
+── Phase 1: Pre-flight ────────────────────────────────────────
   Catalog:    iPhone 15 Pro · $999.50/unit · IN_STOCK
   Inventory:  47 units available · requested 2 → AVAILABLE
   Blocklist:  tok_test_visa → CLEAR
@@ -44,85 +165,44 @@ Seven microservices. Four execution phases. One `[Spatial]` attribute per method
   Shipment:   SHIP-CB842DE2 → BOOKED
 
 ── Phase 4: Notifications ──────────────────────────────────────
-  Template:   [order_confirmation] Order ORD-2026-001 — rendered
+  Template:   order_confirmation rendered
   Email:      msg_e50b2f0d → SENT
   SMS:        sms_df56f7a7 → SENT
 
-╔══════════════════════════════════════════════════════╗
-║  Status: FULFILLED ✓                                 ║
-╚══════════════════════════════════════════════════════╝
+Status: FULFILLED ✓
 ```
 
----
-
-## Architecture — 7 Domains, 22 Nodes
+### Architecture — 7 Domains, 22 Nodes
 
 ```
-platform.catalog        → search.indexer     → SearchIndex          [DATA_ACCESS]
-                          search.ranker      → RankByRelevance       [DATA_ACCESS]
+platform.catalog        → search.indexer      → SearchIndex           [DATA_ACCESS]
+                          search.ranker       → RankByRelevance        [DATA_ACCESS]
 
-platform.inventory      → warehouse.stock    → FetchStockLevel       [DATA_ACCESS]
-                                             → ValidateQuantity       [DATA_ACCESS]
-                                             → DecrementStock         [STATE_MUTATE]
+platform.inventory      → warehouse.stock     → FetchStockLevel        [DATA_ACCESS]
+                                              → ValidateQuantity        [DATA_ACCESS]
+                                              → DecrementStock          [STATE_MUTATE]
 
-platform.fraud          → screening.scorer   → EvaluateRisk          [DATA_ACCESS]
-                                             → FetchFraudScore        [DATA_ACCESS]
-                          screening.blocklist→ CheckBlocklist         [DATA_ACCESS]
+platform.fraud          → screening.scorer    → EvaluateRisk           [DATA_ACCESS]
+                                              → FetchFraudScore         [DATA_ACCESS]
+                          screening.blocklist → CheckBlocklist          [DATA_ACCESS]
 
-platform.billing        → checkout.payment   → ProcessPayment        [STATE_MUTATE]
-                                             → ChargeStripe           [STATE_MUTATE]
-                                             → CalculateTax           [DATA_ACCESS]
-                                             → VoidCharge             [CRITICAL_DESTROY]
-                                             → ReverseCharge          [CRITICAL_DESTROY]
+platform.billing        → checkout.payment    → ProcessPayment         [STATE_MUTATE]
+                                              → ChargeStripe            [STATE_MUTATE]
+                                              → CalculateTax            [DATA_ACCESS]
+                                              → VoidCharge              [CRITICAL_DESTROY]
+                                              → ReverseCharge           [CRITICAL_DESTROY]
 
-platform.orders         → management.writer  → AssignOrderId         [DATA_ACCESS]
-                                             → PersistOrder           [STATE_MUTATE]
-                          management.validator→ ValidateOrderItems    [DATA_ACCESS]
+platform.orders         → management.writer   → AssignOrderId          [DATA_ACCESS]
+                                              → PersistOrder            [STATE_MUTATE]
+                          management.validator→ ValidateOrderItems      [DATA_ACCESS]
 
-platform.fulfillment    → shipping.dispatcher→ AssignCarrier         [STATE_MUTATE]
-                                             → SelectShippingRate     [DATA_ACCESS]
-                                             → BookShipment           [STATE_MUTATE]
+platform.fulfillment    → shipping.dispatcher → AssignCarrier          [STATE_MUTATE]
+                                              → SelectShippingRate      [DATA_ACCESS]
+                                              → BookShipment            [STATE_MUTATE]
 
-platform.notifications  → email.sender       → SendReceiptEmail      [STATE_MUTATE]
-                          email.templater    → RenderEmailTemplate    [DATA_ACCESS]
-                          sms.sender         → SendOrderSMS           [STATE_MUTATE]
-```
-
----
-
-## Structure
-
-```
-OpenSpatial/
-  Spatial/
-    SpatialAttribute.cs     ← [Spatial] schema — the single declarative contract
-    SpatialTracer.cs        ← OTel span wrapper — coordinate = span name
-    ManifestGenerator.cs    ← reflects assembly → .spatial/manifest.json
-    SpatialTree.cs          ← sptree CLI — C1/C2/C3/C4 + Mermaid output
-  Services/
-    SearchLeaf.cs           ← platform.catalog    · T8
-    RankerTask.cs           ← platform.catalog    · T7
-    StockLeaf.cs            ← platform.inventory  · T8
-    StockValidationTask.cs  ← platform.inventory  · T7
-    StockReserveLeaf.cs     ← platform.inventory  · T8
-    BlocklistLeaf.cs        ← platform.fraud      · T8
-    FraudAction.cs          ← platform.fraud      · T6
-    FraudScoreLeaf.cs       ← platform.fraud      · T8
-    PaymentAction.cs        ← platform.billing    · T6
-    TaxTask.cs              ← platform.billing    · T7
-    StripeLeaf.cs           ← platform.billing    · T8
-    VoidChargeAction.cs     ← platform.billing    · T6 [CRITICAL_DESTROY]
-    VoidChargeLeaf.cs       ← platform.billing    · T8 [CRITICAL_DESTROY]
-    OrderValidatorTask.cs   ← platform.orders     · T7
-    OrderIdTask.cs          ← platform.orders     · T7
-    OrderPersistLeaf.cs     ← platform.orders     · T8
-    CarrierAction.cs        ← platform.fulfillment· T6
-    ShippingRateTask.cs     ← platform.fulfillment· T7
-    ShipmentLeaf.cs         ← platform.fulfillment· T8
-    EmailTemplateTask.cs    ← platform.notifications· T7
-    NotificationLeaf.cs     ← platform.notifications· T8
-    SmsLeaf.cs              ← platform.notifications· T8
-  Program.cs
+platform.notifications  → email.sender        → SendReceiptEmail       [STATE_MUTATE]
+                          email.templater     → RenderEmailTemplate     [DATA_ACCESS]
+                          sms.sender          → SendOrderSMS            [STATE_MUTATE]
 ```
 
 ---
@@ -132,72 +212,29 @@ OpenSpatial/
 **Requirements:** .NET 8 SDK — [download](https://dotnet.microsoft.com/download)
 
 ```bash
-# 1. Clone
+# Clone and build
 git clone https://github.com/erjsingh2012/OpenSpatial.git
 cd OpenSpatial
-
-# 2. Build
 dotnet build
 
-# 3. Run the full order fulfillment demo
+# Run the full order fulfillment demo
 dotnet run
 
-# 4. sptree — C4 architecture map
-dotnet run -- tree              # full C4 code diagram (22 nodes)
+# sptree — C4 architecture map
 dotnet run -- tree --c1         # 7 system contexts at a glance
 dotnet run -- tree --c2         # containers per context
 dotnet run -- tree --c3         # components per container
-dotnet run -- tree --c4         # full code-level map
+dotnet run -- tree --c4         # full 22-node code map
 
-# 5. Filter views
-dotnet run -- tree platform.billing             # billing domain only
-dotnet run -- tree --cap CRITICAL_DESTROY       # all high-blast-radius nodes
-dotnet run -- tree --cap STATE_MUTATE           # all write operations
+# Filter views
+dotnet run -- tree platform.billing          # one domain only
+dotnet run -- tree --cap CRITICAL_DESTROY    # high blast-radius nodes
+dotnet run -- tree --cap STATE_MUTATE        # all write operations
 
-# 6. Export to Markdown / Mermaid
-dotnet run -- tree --md                         # Mermaid graph TD
-dotnet run -- tree --md --c1                    # C1 as Mermaid
-dotnet run -- tree --md > ARCHITECTURE.md       # save to file
-```
-
----
-
-## sptree Output
-
-**C1 — System Context (`--c1`)**
-```
-[C1] platform.billing        (5 nodes)
-[C1] platform.catalog        (2 nodes)
-[C1] platform.fraud          (3 nodes)
-[C1] platform.fulfillment    (3 nodes)
-[C1] platform.inventory      (3 nodes)
-[C1] platform.notifications  (3 nodes)
-[C1] platform.orders         (3 nodes)
-
-22 node(s) across 7 context(s)
-```
-
-**C4 — Full Code Map (`--c4`)**
-```
-[C1] platform.fraud
-  └─ [C2] screening
-       ├─ [C3] blocklist
-      │    └── [C4] [DATA_ACCESS     ] detection_flow › blocklist › lookup › CheckBlocklist
-       └─ [C3] scorer
-           ├── [C4] [DATA_ACCESS     ] detection_flow › pre_auth › evaluate › EvaluateRisk
-           └── [C4] [DATA_ACCESS     ] detection_flow › pre_auth › score_api › FetchFraudScore
-
-[C1] platform.notifications
-  ├─ [C2] email
-  │    ├─ [C3] sender
-  │   │    └── [C4] [STATE_MUTATE    ] order_flow › notify › send_api › SendReceiptEmail
-  │    └─ [C3] templater
-  │        └── [C4] [DATA_ACCESS     ] order_flow › notify › render › RenderEmailTemplate
-  └─ [C2] sms
-       └─ [C3] sender
-           └── [C4] [STATE_MUTATE    ] order_flow › notify › send_sms › SendOrderSMS
-
-22 node(s)   STATE_MUTATE: 8   DATA_ACCESS: 12   CRITICAL_DESTROY: 2
+# Export to Markdown / Mermaid
+dotnet run -- tree --md                      # Mermaid graph TD
+dotnet run -- tree --md --c1                 # C1 as Mermaid
+dotnet run -- tree --md > ARCHITECTURE.md   # save to file
 ```
 
 ---
@@ -205,42 +242,38 @@ dotnet run -- tree --md > ARCHITECTURE.md       # save to file
 ## Tier Rules
 
 | Tier | Role | Rule |
-|------|------|------|
+|---|---|---|
 | T6 Action | Orchestrates | Calls T7 and T8, owns the outcome |
-| T7 Task | Pure logic | No network or database calls |
+| T7 Task | Pure logic | No network, no database — pure function |
 | T8 Leaf | External I/O | Hard timeout required, explicit terminal outcomes only |
 
-A T8 Leaf must always resolve to one of: `SETTLED`, `DECLINED`, `VOIDED`, or `TIMEOUT`. No silent hangs.
+**T8 Leaf must always resolve to one of:** `SETTLED`, `DECLINED`, `VOIDED`, or `TIMEOUT`. No silent hangs.
 
 ---
 
 ## Capability Tags
 
 | Tag | Color | Meaning |
-|-----|-------|---------|
-| `DATA_ACCESS` | 🔵 Blue | Read-only, no state mutation |
-| `STATE_MUTATE` | 🔴 Red | Writes data, requires timeout + audit trail |
-| `CRITICAL_DESTROY` | 🟣 Purple | High blast radius, irreversible operation |
+|---|---|---|
+| `DATA_ACCESS` | 🔵 | Read-only, no state mutation |
+| `STATE_MUTATE` | 🔴 | Writes data — requires timeout + audit trail |
+| `CRITICAL_DESTROY` | 🟣 | Irreversible, high blast radius |
 
 ---
 
 ## OTel Binding
 
-Every `[Spatial]` method automatically becomes an OTel span. The coordinate is the span name:
+`[Spatial]` drives traces. `[Monitoring]` drives metrics and logs. `SpatialTracer` bridges both.
 
 ```
-Activity.DisplayName:
-  platform.billing.checkout.payment:order_flow.process_payment.charge_vendor.ChargeStripe
-
-Activity.Tags:
-  spatial.coordinate  → full 8-tier coordinate
-  spatial.capability  → STATE_MUTATE
-  spatial.outcome     → OUTPUT | SINK:TIMEOUT | SINK:ERROR
-  spatial.context     → billing
-  spatial.container   → checkout
+On entry  → I_k counter  + span.AddEvent(EventIn)
+On OUTPUT → O_k counter  + span.AddEvent(EventOut) + latency histogram → P1/P2/P3
+On SINK   → S_k counter  + span.AddEvent(EventSink)                   → S1/S2/S3
+U_k gauge → I_k − (O_k + S_k)  →  alert when > 0
 ```
 
-Swap the console exporter for OTLP to send spans to Jaeger / Grafana Tempo with zero code change.
+Span name = full 8-tier coordinate. Every metric carries the coordinate as a label.
+Swap the console exporter for OTLP to send to Jaeger / Grafana Tempo with zero code change.
 
 ---
 
@@ -248,55 +281,30 @@ Swap the console exporter for OTLP to send spans to Jaeger / Grafana Tempo with 
 
 ### Phase 1 — Foundation ✅
 
-#### Month 1 — The Shared Contract ✅
-- [x] `[Spatial]` attribute with full 8-tier schema
-- [x] T6 Action → T7 Task → T8 Leaf call chain
-- [x] Hard timeout on T8 Leaf (no silent hangs)
-- [x] Capability tags: `DATA_ACCESS`, `STATE_MUTATE`, `CRITICAL_DESTROY`
-
-#### Month 2 — Manifest Generator ✅
-- [x] Reflect over assembly, write `.spatial/manifest.json`
-- [x] Validate no duplicate coordinates
-- [x] Auto-generated — no manual documentation
-
-#### Month 3 — OpenTelemetry Binding ✅
-- [x] `SpatialTracer.RunAsync()` — coordinate = OTel span name
-- [x] Span tags: capability, context, container, outcome
-- [x] Console exporter — swap for OTLP to reach Jaeger / Tempo
-
-#### Month 4 — sptree CLI ✅
-- [x] `dotnet run -- tree --c1/--c2/--c3/--c4` — zoom levels
-- [x] Filter by coordinate prefix or capability tag
-- [x] `--md` flag — Mermaid output for GitHub / README
-
-#### Month 5 — Real-World Demo ✅
-- [x] 7 microservice domains (catalog, inventory, fraud, billing, orders, fulfillment, notifications)
-- [x] 22 `[Spatial]` nodes — 8 STATE_MUTATE, 12 DATA_ACCESS, 2 CRITICAL_DESTROY
-- [x] Full order fulfillment flow: pre-flight → payment → fulfillment → notifications
-
----
+| Month | Milestone | Status |
+|---|---|---|
+| 1 | `[Spatial]` attribute + 3-tier payment flow | ✅ |
+| 2 | Manifest generator (`.spatial/manifest.json`) | ✅ |
+| 3 | OpenTelemetry binding — coordinate = span name | ✅ |
+| 4 | `sptree` CLI — C1/C2/C3/C4 + Mermaid `--md` | ✅ |
+| 5 | Real-world demo — 7 domains, 22 nodes | ✅ |
 
 ### Phase 2 — Observability
 
-#### Month 6 — Event Accounting (H.A.C.K. Baseline)
-> Count what enters. Count what exits. Investigate the difference.
+| Month | Milestone | Status |
+|---|---|---|
+| 6 | `[Monitoring]` attribute — I_k/O_k/S_k/U_k + named paths + flow view | ⬜ |
+| 7 | Grafana dashboard auto-generation from `[Monitoring]` schema | ⬜ |
+| 8 | Spatial-MCP Server — AI agents query by coordinate | ⬜ |
 
-- [ ] Wire `I_k` (inputs), `O_k` (outputs), `S_k` (sinks), `B_k` (in-flight) as OTel metrics
-- [ ] Auto-derive from `EventIn`, `EventOut`, `EventSink` fields on `[Spatial]`
-- [ ] Compute `U_k = I_k - (O_k + S_k + B_k)` as a gauge metric
-- [ ] Alert when `U_k > 0` at any coordinate — unaccounted events detected
-- [ ] Grafana dashboard template: Health Funnel per coordinate
+### Phase 3 — Enforcement
 
-#### Month 7 — Spatial-MCP Server
-> AI agents query by coordinate. No file traversal. No hallucination.
-
-- [ ] MCP server exposing structured tools:
-  - `get_node(coordinate)` → tier, capability, contract
-  - `get_subnet(prefix)` → all nodes under a coordinate prefix
-  - `get_callers(coordinate)` → call graph from manifest
-  - `evaluate_delta(diff)` → detect new cross-domain edges
-- [ ] Plugs into Cursor, Windsurf, Claude Code via MCP protocol
-- [ ] Human and AI agent see the same structural map — Architectural Asymmetry eliminated
+| Month | Milestone | Status |
+|---|---|---|
+| 9 | `[SpatialModule]` — T1-T4 defined once at class level | ⬜ |
+| 10 | Roslyn analyzer — duplicate coords, missing timeouts caught at build | ⬜ |
+| 11 | GitHub Action — C4 Mermaid diff on every PR | ⬜ |
+| 12 | AI code review agent — validates coordinates, flags missing exits | ⬜ |
 
 ---
 
