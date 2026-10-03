@@ -35,14 +35,14 @@ public class FraudScoreLeaf
         EventSink = "fraud.check.failed    | S1:TIMEOUT, S2:PROVIDER_ERROR"
     )]
     public async Task<FraudScore> FetchFraudScore(string token, decimal amount) =>
-        await SpatialTracer.RunAsync(Attr, nameof(FetchFraudScore), async () =>
+        await SpatialTracer.RunAsync(Attr, Monitor, nameof(FetchFraudScore), async () =>
         {
             using var cts = new CancellationTokenSource(Attr.TimeoutMs);
             await Task.Delay(50, cts.Token);
 
-            // Realistic threshold: flag orders over $10,000 or known bad tokens
             var score   = (amount > 10_000m || token.StartsWith("tok_fraud")) ? 0.82 : 0.12;
             var isRisky = score > 0.65;
+            SpatialTracer.DeclareOutput(isRisky ? "P2" : "P1");  // P1:CLEAR · P2:HIGH_RISK
             return new FraudScore(isRisky, score, isRisky ? "AMOUNT_THRESHOLD" : "CLEAR");
         });
 }

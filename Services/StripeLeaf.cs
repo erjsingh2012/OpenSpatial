@@ -35,13 +35,13 @@ public class StripeLeaf
         EventSink = "payment.failed   | S1:DECLINED, S2:TIMEOUT, S3:INSUFFICIENT_FUNDS"
     )]
     public async Task<ChargeResult> ChargeStripe(decimal total, string token) =>
-        await SpatialTracer.RunAsync(Attr, nameof(ChargeStripe), async () =>
+        await SpatialTracer.RunAsync(Attr, Monitor, nameof(ChargeStripe), async () =>
         {
             using var cts = new CancellationTokenSource(Attr.TimeoutMs);
-
             await Task.Delay(200, cts.Token);
 
             var chargeId = $"ch_{Guid.NewGuid().ToString()[..8]}";
+            SpatialTracer.DeclareOutput("P1");   // P1:SETTLED_FULL
             return new ChargeResult(true, chargeId, "SETTLED");
         });
 }

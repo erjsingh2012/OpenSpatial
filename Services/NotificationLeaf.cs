@@ -35,11 +35,12 @@ public class NotificationLeaf
         EventSink = "notification.email.failed   | S1:PROVIDER_ERROR, S2:INVALID_ADDRESS"
     )]
     public async Task<EmailResult> SendReceiptEmail(string orderId, decimal total) =>
-        await SpatialTracer.RunAsync(Attr, nameof(SendReceiptEmail), async () =>
+        await SpatialTracer.RunAsync(Attr, Monitor, nameof(SendReceiptEmail), async () =>
         {
             using var cts = new CancellationTokenSource(Attr.TimeoutMs);
             await Task.Delay(80, cts.Token);
             var msgId = $"msg_{Guid.NewGuid().ToString()[..8]}";
+            SpatialTracer.DeclareOutput("P1");   // P1:DELIVERED
             return new EmailResult(true, msgId);
         });
 }

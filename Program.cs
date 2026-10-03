@@ -1,6 +1,7 @@
 using OpenSpatial.Services;
 using OpenSpatial.Spatial;
 using OpenTelemetry;
+using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 using System.Reflection;
 
@@ -62,6 +63,11 @@ Console.WriteLine();
 using var tracerProvider = Sdk.CreateTracerProviderBuilder()
     .AddSource("openspatial")
     .AddConsoleExporter()
+    .Build();
+
+// MeterProvider — production: swap for .AddOtlpExporter() → Grafana
+using var meterProvider = Sdk.CreateMeterProviderBuilder()
+    .AddMeter(SpatialMeter.Meter.Name)
     .Build();
 
 // ── Order parameters ────────────────────────────────────────────────────────
@@ -174,3 +180,6 @@ Console.WriteLine($"║  Ship:   {shipment.ShipmentId,-50}║");
 Console.WriteLine("╚══════════════════════════════════════════════════════════════╝");
 
 ManifestGenerator.Generate(Assembly.GetExecutingAssembly());
+
+Console.WriteLine();
+SpatialMeter.DumpHealthReport();
